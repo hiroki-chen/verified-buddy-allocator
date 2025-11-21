@@ -11,6 +11,10 @@ use vstd::arithmetic::power2::*;
 use vstd::math::*;
 use vstd::prelude::*;
 
+use crate::bits::lemma_lt_is_power_of_two_bitor;
+use crate::collections::PointsToWrapper;
+
+pub mod bits;
 pub mod collections;
 
 verus! {
@@ -688,12 +692,11 @@ impl<const ORDER: usize> Buddy<ORDER> {
     /// Because Array owns the opauqe [T; N] and we use const array-fill expression,
     /// verus cannot reason anything about it so we just mark this function as trusted.
     #[verifier::external_body]
-    pub const fn new(Ghost(f): Ghost<DekoHeapPredicate>) -> (s: Self)
+    pub const fn new() -> (s: Self)
         requires
             0 < ORDER <= 32,
         ensures
             s.wf(),
-            f.inv(s),
             !s.is_init(),
     {
         Self {
@@ -820,8 +823,8 @@ impl<const ORDER: usize> Buddy<ORDER> {
     /// any unused chunks on the free list.
     fn split_free_block(
         &mut self,
-        block: DekoHeapBlock,
-        Tracked(block_points_to): Tracked<DekoHeapBlockPerm>,
+        block: PPtrWrapper<Node<()>>,
+        Tracked(block_points_to): Tracked<PointsToWrapper<Node<()>>>,
         mut order: u64,
         order_needed: u64,
     )
@@ -945,6 +948,50 @@ impl<const ORDER: usize> Buddy<ORDER> {
             self.heap_base + buddy_offset
         }
     }
+}
+
+/// A wrapper around `LinkedList` that provides a more convenient API for
+/// manipulating the linked list. This is intended to be used as a closure.
+pub fn pop_front_closure<V>(ll: LinkedList<V>) -> (res: (
+    (PPtrWrapper<Node<V>>, Tracked<PointsToWrapper<Node<V>>>),
+    LinkedList<V>,
+))
+    requires
+        ll.wf(),
+        !ll.is_empty(),
+    ensures
+        res.0.0 == ll.inner@.ptrs.index(0),
+        res.0.1@.value().value == ll@.index(0),
+        ll@.remove(0) == res.1@,
+        res.1.wf(),
+        res.1@.len() == ll@.len() - 1,
+        res.1.inner@.ptrs == ll.inner@.ptrs.remove(0),
+{
+    let mut ll = ll;
+    let hd = ll.pop_front_no_alloc();
+
+    (hd, ll)
+}
+
+pub fn remove_closure<V>(ll: LinkedList<V>, i: usize) -> (res: (
+    (PPtrWrapper<Node<V>>, Tracked<PointsToWrapper<Node<V>>>),
+    LinkedList<V>,
+))
+    requires
+        ll.wf(),
+        0 <= i < ll.inner@.ptrs.len(),
+        !ll.is_empty(),
+    ensures
+        res.0.0 == ll.inner@.ptrs.index(i as int),
+        res.0.1@.value().value == ll@.index(i as int),
+        ll@.remove(i as int) == res.1@,
+        res.1.wf(),
+        res.1.inner@.ptrs == ll.inner@.ptrs.remove(i as int),
+{
+    let mut ll = ll;
+    let hd = ll.remove(i);
+
+    (hd, ll)
 }
 
 } // verus!
