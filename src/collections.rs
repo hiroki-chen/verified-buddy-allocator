@@ -1,3 +1,5 @@
+use core::ops::Deref;
+
 use vstd::{
     prelude::*,
     raw_ptr::{self, Dealloc, IsExposed},
@@ -12,18 +14,39 @@ verus! {
 pub struct Array<T, const N: usize>(pub [T; N]);
 
 #[repr(C, align(8))]
+#[derive(Clone, Copy)]
 pub struct PPtrWrapper<V>(vstd::simple_pptr::PPtr<V>);
 
-pub tracked struct PointsToWrapper<V> {
-    /// The underlying raw pointer permission.
-    points_to: raw_ptr::PointsTo<V>,
-    exposed: IsExposed,
-    dealloc: Option<Dealloc>,
+impl<V> Deref for PPtrWrapper<V> {
+    type Target = vstd::simple_pptr::PPtr<V>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> View for PPtrWrapper<T> {
+    type V = vstd::simple_pptr::PPtr<T>;
+
+    closed spec fn view(&self) -> Self::V {
+        self.0
+    }
+}
+
+pub tracked struct PointsToWrapper<V>(vstd::simple_pptr::PointsTo<V>);
+
+impl<V> Deref for PointsToWrapper<V> {
+    type Target = vstd::simple_pptr::PointsTo<V>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 #[verifier::reject_recursive_types(V)]
 #[verifier::ext_equal]
-pub struct Node<V> {
+#[derive(Clone, Copy)]
+pub struct Node<V: Copy> {
     /// The previous node in the linked list.
     pub prev: Option<PPtrWrapper<Node<V>>>,
     /// The next node in the linked list.
@@ -33,14 +56,14 @@ pub struct Node<V> {
 
 #[verifier::reject_recursive_types(V)]
 #[verifier::ext_equal]
-pub tracked struct LinkedListInner<V> {
+pub tracked struct LinkedListInner<V: Copy> {
     pub ptrs: Seq<PPtrWrapper<Node<V>>>,
     pub perms: Map<nat, PointsToWrapper<Node<V>>>,
 }
 
 #[verifier::reject_recursive_types(V)]
 #[verifier::ext_equal]
-pub struct LinkedList<V> {
+pub struct LinkedList<V: Copy> {
     pub head: Option<PPtrWrapper<Node<V>>>,
     pub tail: Option<PPtrWrapper<Node<V>>>,
     pub inner: Tracked<LinkedListInner<V>>,
@@ -69,14 +92,10 @@ impl<T, const N: usize> Array<T, N> {
     pub fn update_in_place<U>(&mut self, i: usize, f: impl FnOnce(T) -> (U, T)) -> (t: U)
         requires
             0 <= i < old(self)@.len(),
-            old(self).wf(),
-            old(self)@.index(i as int).wf(),
             f.requires((old(self)@.index(i as int),)),
         ensures
-            self.wf(),
             f.ensures((old(self)@.index(i as int),), (t, self@.index(i as int))),
             self@.len() == old(self)@.len(),
-            self@.index(i as int).wf(),
             // others remain unchanged.
             forall|j: int|
                 0 <= j < old(self)@.len() as int && j != i as int ==> self@.index(j) == old(
@@ -104,7 +123,6 @@ impl<T: Clone, const N: usize> Clone for Array<T, N> {
     #[verifier::external_body]
     fn clone(&self) -> (r: Self)
         ensures
-            r.wf(),
             r@ == self@,
     {
         Array(self.0.clone())
@@ -115,7 +133,7 @@ impl<T: Copy, const N: usize> Copy for Array<T, N> {
 
 }
 
-impl<V> LinkedList<V> {
+impl<V: Copy> LinkedList<V> {
     pub open spec fn prev(&self, i: nat) -> Option<PPtrWrapper<Node<V>>> {
         if i == 0 {
             None
@@ -125,7 +143,6 @@ impl<V> LinkedList<V> {
     }
 
     pub open spec fn node_wf_at(&self, i: nat) -> bool {
-        &&& self.inner@.perms[i].wf()
         &&& self.inner@.perms.dom().contains(i)
         &&& self.inner@.ptrs[i as int]@ == self.inner@.perms[i].pptr()
         &&& self.inner@.perms[i].mem_contents() matches vstd::simple_pptr::MemContents::Init(node)
@@ -170,6 +187,16 @@ impl<V> LinkedList<V> {
     {
     }
 
+    #[inline(always)]
+    pub fn len(&self) -> (len: usize)
+        requires
+            self.wf(),
+        ensures
+            len == self@.len(),
+    {
+        self.len
+    }
+
     pub const fn new() -> (s: Self)
         ensures
             s.wf(),
@@ -184,23 +211,11 @@ impl<V> LinkedList<V> {
         }
     }
 
-    #[inline(always)]
-    pub fn len(&self) -> (len: usize)
-        requires
-            self.wf(),
-        ensures
-            len == self@.len(),
-    {
-        self.len
-    }
-
     fn push_empty(&mut self, v: PPtrWrapper<Node<V>>, perm: Tracked<PointsToWrapper<Node<V>>>)
         requires
             old(self).wf(),
             old(self)@.len() == 0,
             perm@.is_init(),
-            perm@.wf(),
-            perm@.value().value.wf(),
             perm@.value().prev == None::<PPtrWrapper<Node<V>>>,
             perm@.value().next == None::<PPtrWrapper<Node<V>>>,
             v@ == perm@.pptr(),
@@ -229,9 +244,7 @@ impl<V> LinkedList<V> {
     )
         requires
             old(self).wf(),
-            perm@.wf(),
             old(self).len < usize::MAX,
-            perm@.value().value.wf(),
             v@ == perm@.pptr(),
             perm@.is_init(),
         ensures
@@ -590,7 +603,7 @@ impl<V> LinkedList<V> {
     }
 }
 
-impl<T> View for LinkedList<T> {
+impl<T: Copy> View for LinkedList<T> {
     type V = Seq<T>;
 
     closed spec fn view(&self) -> Self::V {

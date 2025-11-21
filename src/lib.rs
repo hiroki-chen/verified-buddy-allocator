@@ -88,6 +88,8 @@ pub trait Heap: Sized {
 
     spec fn is_init(&self) -> bool;
 
+    spec fn wf(&self) -> bool;
+
     fn is_init_impl(&self) -> (r: bool)
         ensures
             r <==> self.is_init(),
@@ -212,15 +214,6 @@ pub struct Buddy<const ORDER: usize> {
 }
 
 impl<const ORDER: usize> Buddy<ORDER> {
-    #[verifier::type_invariant]
-    pub open spec fn wf(&self) -> bool {
-        &&& self.heap_base != 0
-        &&& self.heap_size != 0
-        &&& self.heap_size_valid()
-        &&& self.free_list@.len() == ORDER as int
-        &&& ORDER - 1 >= 0
-    }
-
     pub open spec fn valid_size_and_align(&self, size: u64, align: u64) -> bool {
         let new_size = self.allocation_size_spec(size, align);
 
@@ -238,7 +231,6 @@ impl<const ORDER: usize> Buddy<ORDER> {
 
     pub open spec fn free_list_valid(&self) -> bool {
         &&& self.block_no_overlapping()
-        &&& self.free_list.wf()
         &&& forall|i: int|
             0 <= i < self.free_list@.len() ==> #[trigger] self.free_list@.index(i).wf()
     }
@@ -958,7 +950,7 @@ impl<const ORDER: usize> Buddy<ORDER> {
 
 /// A wrapper around `LinkedList` that provides a more convenient API for
 /// manipulating the linked list. This is intended to be used as a closure.
-pub fn pop_front_closure<V>(ll: LinkedList<V>) -> (res: (
+pub fn pop_front_closure<V: Copy>(ll: LinkedList<V>) -> (res: (
     (PPtrWrapper<Node<V>>, Tracked<PointsToWrapper<Node<V>>>),
     LinkedList<V>,
 ))
@@ -979,7 +971,7 @@ pub fn pop_front_closure<V>(ll: LinkedList<V>) -> (res: (
     (hd, ll)
 }
 
-pub fn remove_closure<V>(ll: LinkedList<V>, i: usize) -> (res: (
+pub fn remove_closure<V: Copy>(ll: LinkedList<V>, i: usize) -> (res: (
     (PPtrWrapper<Node<V>>, Tracked<PointsToWrapper<Node<V>>>),
     LinkedList<V>,
 ))
