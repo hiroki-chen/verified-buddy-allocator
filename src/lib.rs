@@ -2,6 +2,7 @@
 #![allow(unused_imports)]
 #![no_std]
 
+use collections::Array;
 use collections::LinkedList;
 use collections::Node;
 use collections::PPtrWrapper;
@@ -18,6 +19,11 @@ pub mod bits;
 pub mod collections;
 
 verus! {
+
+#[verifier::inline]
+pub open spec fn is_power_of_two_spec(n: nat) -> bool {
+    exists|exp: nat| n == #[trigger] pow(2, exp)
+}
 
 #[verifier::inline]
 pub open spec fn is_power_of_two(n: u64) -> bool {
@@ -57,7 +63,7 @@ pub assume_specification[ u64::ilog2 ](n: u64) -> (result: u32)
 
 pub assume_specification[ u64::next_power_of_two ](n: u64) -> (result: u64)
     ensures
-        result == next_power_of_two(n as nat),
+        result == next_power_of_two_spec(n as nat),
         next_power_of_two_correct(n as nat, result as nat),
 ;
 
@@ -386,7 +392,7 @@ impl<const ORDER: usize> Buddy<ORDER> {
                 if let Some(idx) = self.free_list.index(order as usize).find_by_addr(ptr) {
                     // We have a buddy that is free.
                     let f = |list: LinkedList<()>| -> (res: (
-                        (PPtrWrapper<Node<()>>, Tracked<DekoHeapBlockPerm>),
+                        (PPtrWrapper<Node<()>>, Tracked<PointsToWrapper<Node<()>>>),
                         LinkedList<()>,
                     ))
                         requires
@@ -499,13 +505,13 @@ impl<const ORDER: usize> Buddy<ORDER> {
 
     }
 
-    pub closed spec fn blocks_are_aligned(&self, list: &LinkedList<()>, block_size: nat) -> bool {
+    pub open spec fn blocks_are_aligned(&self, list: &LinkedList<()>, block_size: nat) -> bool {
         forall|i: int|
             0 <= i < list.inner@.ptrs.len() ==> #[trigger] list.inner@.ptrs.index(i).addr() % (
             block_size as usize) == 0
     }
 
-    pub closed spec fn blocks_in_heap_range(&self, list: &LinkedList<()>, block_size: nat) -> bool {
+    pub open spec fn blocks_in_heap_range(&self, list: &LinkedList<()>, block_size: nat) -> bool {
         forall|i: int|
             0 <= i < list.inner@.ptrs.len() ==> self.in_heap_range(
                 #[trigger] list.inner@.ptrs.index(i).addr() as nat,
@@ -514,7 +520,7 @@ impl<const ORDER: usize> Buddy<ORDER> {
     }
 
     /// Ensures that the blocks in the free list at a given order do not overlap.
-    pub closed spec fn blocks_no_overlapping_at(
+    pub open spec fn blocks_no_overlapping_at(
         &self,
         list: &LinkedList<()>,
         block_size: nat,
@@ -529,7 +535,7 @@ impl<const ORDER: usize> Buddy<ORDER> {
             )
     }
 
-    pub closed spec fn params_eq(&self, other: &Self) -> bool {
+    pub open spec fn params_eq(&self, other: &Self) -> bool {
         &&& self.heap_base == other.heap_base
         &&& self.heap_size == other.heap_size
         &&& self.min_block_size == other.min_block_size
@@ -537,7 +543,7 @@ impl<const ORDER: usize> Buddy<ORDER> {
     }
 
     /// Ensures that allocating the same memory twice that causes double use problems.
-    pub closed spec fn block_no_overlapping(&self) -> bool {
+    pub open spec fn block_no_overlapping(&self) -> bool {
         forall|i: nat|
             0 <= i < self.free_list@.len() ==> {
                 let list = #[trigger] self.free_list@.index(i as int);
@@ -548,7 +554,7 @@ impl<const ORDER: usize> Buddy<ORDER> {
             }
     }
 
-    pub closed spec fn heap_size_valid(&self) -> bool {
+    pub open spec fn heap_size_valid(&self) -> bool {
         // The heap size must be a multiple of the minimum block size.
         &&& self.min_block_size > 0
         &&& self.heap_size % self.min_block_size
@@ -640,7 +646,7 @@ impl<const ORDER: usize> Buddy<ORDER> {
         lemma_log_pow(2, 64);
     }
 
-    pub closed spec fn empty_free_list(&self) -> bool {
+    pub open spec fn empty_free_list(&self) -> bool {
         forall|i: int|
             0 <= i < self.free_list@.len() as int ==> #[trigger] self.free_list@.index(
                 i,
@@ -709,7 +715,7 @@ impl<const ORDER: usize> Buddy<ORDER> {
         }
     }
 
-    pub closed spec fn allocation_size_spec(&self, size: u64, align: u64) -> u64 {
+    pub open spec fn allocation_size_spec(&self, size: u64, align: u64) -> u64 {
         let new_size = if align > size {
             align
         } else {
@@ -717,7 +723,7 @@ impl<const ORDER: usize> Buddy<ORDER> {
         };
         let new_size = vstd::math::max(new_size as int, self.min_block_size as int) as u64;
 
-        next_power_of_two(new_size as nat) as u64
+        next_power_of_two_spec(new_size as nat) as u64
     }
 
     fn choose_size(&self, mut size: u64, align: u64) -> (s: u64)
