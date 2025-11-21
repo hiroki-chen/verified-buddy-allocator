@@ -1,0 +1,12 @@
+[package]
+name = "verified-buddy-allocator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+vstd = { git = "https://github.com/verus-lang/verus.git" }
+verus_builtin_macros = { git = "https://github.com/verus-lang/verus.git" }
+verus_builtin = { git = "https://github.com/verus-lang/verus.git" }
+
+[package.metadata.verus]
+verify = true
